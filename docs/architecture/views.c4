@@ -1,0 +1,8 @@
+views {
+
+  view index {
+    title 'Nebius VM sandbox - architecture'
+    description 'Whole architecture: who operates the sandbox, what provisions it, and what runs in Nebius.'
+    include operator, iac, nebius, nebius.*
+  }
+}

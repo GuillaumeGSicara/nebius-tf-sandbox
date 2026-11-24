@@ -1,0 +1,75 @@
+model {
+  operator = actor 'Operator' {
+    description 'Engineer who owns the sandbox.'
+  }
+
+  iac = container 'Terraform layers' {
+    description 'Infrastructure code: a storage layer and a compute layer.'
+    technology 'Terraform'
+    icon ./icons/terraform.svg
+    style {
+      color terraform
+    }
+  }
+
+  nebius = cloud 'Nebius AI Cloud' {
+    description 'Cloud platform that hosts the sandbox.'
+    icon ./icons/nebius.svg
+
+    vm = container 'GPU virtual machine' {
+      description 'Compute instance for model inference, reachable on a public address.'
+      technology 'Linux, vLLM'
+      icon tech:ubuntu
+      style {
+        color ubuntu
+      }
+    }
+
+    bootDisk = datastore 'Boot disk' {
+      description 'System disk. Lives and dies with the virtual machine.'
+      icon ./icons/nebius.svg
+      style {
+        color ubuntu
+      }
+    }
+
+    modelsDisk = datastore 'Model weights disk' {
+      description 'Persistent disk for model weights. Outlives the virtual machine.'
+      icon ./icons/nebius.svg
+      style {
+        color ubuntu
+      }
+    }
+
+    iam = service 'IAM' {
+      description 'Identity service that holds the service account.'
+      icon ./icons/nebius.svg
+    }
+
+    subnet = service 'Subnet' {
+      description 'Virtual network segment.'
+      icon ./icons/nebius.svg
+    }
+  }
+
+  operator -> iac 'Plans, applies, destroys' {
+    technology 'Terraform CLI'
+  }
+  operator -> nebius.vm 'Administers' {
+    technology 'SSH'
+  }
+
+  iac -> nebius.iam 'Authenticates' {
+    technology 'Service account'
+  }
+  iac -> nebius.modelsDisk 'Storage layer creates' {
+    technology 'Nebius API'
+  }
+  iac -> nebius.vm 'Compute layer creates and configures' {
+    technology 'Nebius API, cloud-init'
+  }
+
+  nebius.vm -> nebius.bootDisk 'Boots from'
+  nebius.vm -> nebius.modelsDisk 'Mounts'
+  nebius.vm -> nebius.subnet 'Attached to'
+}

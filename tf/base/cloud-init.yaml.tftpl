@@ -1,0 +1,55 @@
+#cloud-config
+users:
+  - name: ${username}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+# Model weights disk. Formatted on first use only: overwrite=false leaves an existing filesystem untouched.
+fs_setup:
+  - device: ${models_device}
+    filesystem: ext4
+    label: models
+    overwrite: false
+
+# nofail keeps the VM bootable if the disk is detached.
+mounts:
+  - [${models_device}, ${mount_path}, ext4, "defaults,nofail", "0", "2"]
+
+package_update: true
+packages:
+  - btop
+  # vLLM compiles small GPU helpers at first start and needs the Python headers (Python.h) for it.
+  - python3-dev
+  - build-essential
+
+write_files:
+  # Hugging Face cache on the model weights disk; vLLM venv on PATH.
+  - path: /etc/profile.d/vllm.sh
+    permissions: "0644"
+    content: |
+      export HF_HOME=${mount_path}/hf
+      export PATH=/opt/vllm/.venv/bin:$PATH
+
+  # Run as ${username}. Safe to re-run to upgrade vLLM.
+  - path: /usr/local/bin/install-vllm
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      cd /opt/vllm
+      uv venv --python 3.12 --seed --allow-existing
+      uv pip install --upgrade vllm --torch-backend=auto
+      # Precompiled kernels; without them the first start compiles for several minutes.
+      .venv/bin/vllm download-kernels || echo "vllm download-kernels failed, kernels will compile at first start"
+
+runcmd:
+  - mountpoint -q ${mount_path} && install -d -o ${username} -g ${username} ${mount_path}/hf
+
+  # uv, system-wide.
+  - curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh
+
+  # vLLM in /opt/vllm/.venv, owned by ${username}.
+  - install -d -o ${username} -g ${username} /opt/vllm
+  - sudo -u ${username} -H /usr/local/bin/install-vllm

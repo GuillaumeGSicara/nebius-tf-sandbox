@@ -1,0 +1,28 @@
+specification {
+  color terraform #7B42BC
+  color ubuntu #E95420
+  color nebius #052B42
+
+  element actor {
+    style {
+      shape person
+      color gray
+    }
+  }
+  element cloud {
+    style {
+      color nebius
+    }
+  }
+  element container
+  element service {
+    style {
+      color nebius
+    }
+  }
+  element datastore {
+    style {
+      shape storage
+    }
+  }
+}

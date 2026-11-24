@@ -1,0 +1,121 @@
+version: "3"
+
+dotenv: [".env"]
+
+vars:
+  SSH_KEY: '{{.HOME}}/.ssh/nebius_vm_starhopper'
+
+env:
+  TF_VAR_project_id: '{{.NEBIUS_PROJECT_ID}}'
+  TF_VAR_subnet_id: '{{.NEBIUS_SUBNET_ID}}'
+  TF_VAR_service_account_id: '{{.NEBIUS_SA_ID}}'
+
+tasks:
+  ssh:
+    desc: SSH into the VM (IP from Terraform output)
+    interactive: true
+    requires:
+      vars: [NEBIUS_SSH_USERNAME]
+    vars:
+      HOST:
+        sh: terraform -chdir=tf/base output -raw public_ip
+    cmds:
+      - task: ssh:known-hosts
+      - ssh -p {{.NEBIUS_SSH_PORT | default "22"}} -i {{.SSH_KEY}} {{.NEBIUS_SSH_USERNAME}}@{{.HOST}} {{.CLI_ARGS}}
+
+  ssh:known-hosts:
+    desc: Replace the VM entry in ~/.ssh/known_hosts with its current host key
+    vars:
+      HOST:
+        sh: terraform -chdir=tf/base output -raw public_ip
+      PORT: '{{.NEBIUS_SSH_PORT | default "22"}}'
+    cmds:
+      # Drop any stale key first: a recreated VM reuses the IP with a new host key.
+      - ssh-keygen -R {{.HOST}} >/dev/null 2>&1 || true
+      - ssh-keyscan -T 10 -p {{.PORT}} -H {{.HOST}} >> {{.HOME}}/.ssh/known_hosts
+
+  chat:
+    desc: 'Send one chat completion to vLLM on the VM and print the full JSON response (prompt: task chat -- "...")'
+    requires:
+      vars: [NEBIUS_SSH_USERNAME]
+    vars:
+      HOST:
+        sh: terraform -chdir=tf/base output -raw public_ip
+      SSH: ssh -p {{.NEBIUS_SSH_PORT | default "22"}} -i {{.SSH_KEY}} {{.NEBIUS_SSH_USERNAME}}@{{.HOST}}
+      URL: 'http://localhost:{{.VLLM_PORT | default "8000"}}/v1'
+      PROMPT: '{{.CLI_ARGS_LIST | join " " | default .DEFAULT_PROMPT | default "Say hello in one sentence."}}'
+    cmds:
+      - task: ssh:known-hosts
+      # curl runs on the VM, so the vLLM port does not need to be open to the internet.
+      - |
+        set -euo pipefail
+        MODEL={{.VLLM_MODEL | default "" | shellQuote}}
+        if [ -z "$MODEL" ]; then
+          MODEL=$({{.SSH}} "curl -sS --fail-with-body {{.URL}}/models" | jq -er '.data[0].id')
+        fi
+        jq -n --arg model "$MODEL" --arg prompt {{.PROMPT | shellQuote}} --argjson max_tokens {{.MAX_TOKENS | default "null"}} \
+          '{model: $model, messages: [{role: "user", content: $prompt}]} + if $max_tokens then {max_tokens: $max_tokens} else {} end' \
+          | {{.SSH}} "curl -sS --fail-with-body -H 'Content-Type: application/json' -d @- {{.URL}}/chat/completions" \
+          | jq .
+
+  chat:long:
+    desc: 'Same as chat, with a prompt asking for a very long answer (size: MAX_TOKENS=8192 task chat:long)'
+    cmds:
+      - task: chat
+        vars:
+          DEFAULT_PROMPT: >-
+            Write an exhaustive technical guide to how large language model inference servers work:
+            tokenization, batching, KV cache, attention, sampling, quantization, scheduling and GPU memory management.
+            Be as long and detailed as you can, with many sections and examples. Do not summarise and do not stop early.
+          MAX_TOKENS: '{{.MAX_TOKENS | default "4096"}}'
+
+  # Layers: storage (model weights filesystem) must be applied before base (VM).
+  tf:
+    internal: true
+    interactive: true
+    dir: 'tf/{{.LAYER}}'
+    requires:
+      vars: [NEBIUS_PROJECT_ID]
+    cmd: terraform {{.CMD}} {{.CLI_ARGS}}
+
+  tf:storage:init:
+    desc: Initialise the storage layer
+    cmds: [{task: tf, vars: {LAYER: storage, CMD: init}}]
+
+  tf:storage:plan:
+    desc: Plan the storage layer (model weights filesystem)
+    cmds: [{task: tf, vars: {LAYER: storage, CMD: plan}}]
+
+  tf:storage:apply:
+    desc: Apply the storage layer
+    cmds: [{task: tf, vars: {LAYER: storage, CMD: apply}}]
+
+  tf:storage:destroy:
+    desc: Destroy the storage layer (deletes all model weights)
+    cmds: [{task: tf, vars: {LAYER: storage, CMD: destroy}}]
+
+  tf:init:
+    desc: Initialise the base layer
+    cmds: [{task: tf, vars: {LAYER: base, CMD: init}}]
+
+  tf:plan:
+    desc: Plan the base layer (VM)
+    requires:
+      vars: [NEBIUS_SUBNET_ID]
+    cmds: [{task: tf, vars: {LAYER: base, CMD: plan}}]
+
+  tf:apply:
+    desc: Apply the base layer
+    requires:
+      vars: [NEBIUS_SUBNET_ID]
+    cmds: [{task: tf, vars: {LAYER: base, CMD: apply}}]
+
+  tf:destroy:
+    desc: Destroy the base layer (model weights are kept)
+    requires:
+      vars: [NEBIUS_SUBNET_ID]
+    cmds: [{task: tf, vars: {LAYER: base, CMD: destroy}}]
+
+  tf:ip:
+    desc: Print the VM public IP
+    cmd: terraform -chdir=tf/base output -raw public_ip
