@@ -1,10 +1,10 @@
 model {
   operator = actor 'Operator' {
-    description 'Engineer who owns the sandbox.'
+    description 'Engineer who owns the infrastructure.'
   }
 
   iac = container 'Terraform layers' {
-    description 'Infrastructure code: a storage layer and a compute layer.'
+    description 'Infrastructure code, split in layers.'
     technology 'Terraform'
     icon ./icons/terraform.svg
     style {
@@ -41,9 +41,17 @@ model {
       }
     }
 
-    iam = service 'IAM' {
-      description 'Identity service that holds the service account.'
+    platform = zone 'Nebius-operated services' {
+      description 'Services that Nebius runs for every tenant. The customer configures them and does not operate them.'
       icon ./icons/nebius.svg
+      style {
+        color nebius
+      }
+
+      iam = service 'IAM' {
+        description 'Identity service for service accounts and user accounts.'
+        icon ./icons/nebius.svg
+      }
     }
 
     subnet = service 'Subnet' {
@@ -59,7 +67,7 @@ model {
     technology 'SSH'
   }
 
-  iac -> nebius.iam 'Authenticates' {
+  iac -> nebius.platform.iam 'Authenticates' {
     technology 'Service account'
   }
   iac -> nebius.modelsDisk 'Storage layer creates' {

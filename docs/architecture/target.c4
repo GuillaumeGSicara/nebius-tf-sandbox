@@ -1,0 +1,150 @@
+model {
+  consumers = system 'Consumers' {
+    description 'Business applications, AI agents, developer tools and batch pipelines of the enterprise.'
+  }
+
+  datacenter = zone 'On-premises data center' {
+    description 'Enterprise site that hosts the platform cluster.'
+    style {
+      color onprem
+    }
+
+    okta = system 'Okta' {
+      description 'Enterprise identity provider: users, groups, multi-factor authentication.'
+      technology 'SAML 2.0, OIDC'
+      icon tech:okta-icon
+      style {
+        color okta
+      }
+    }
+
+    repository = system 'Git repository' {
+      description 'Source of truth for infrastructure code and workload manifests.'
+      technology 'GitLab, self-hosted'
+      icon tech:gitlab-icon
+    }
+
+    cluster = container 'Kubernetes cluster' {
+      description 'Enterprise platform cluster.'
+      icon tech:kubernetes
+      style {
+        color kubernetes
+      }
+
+      api = container 'Kubernetes API' {
+        description 'Control plane endpoint. Maps identity provider groups to RBAC roles.'
+        technology 'OIDC, RBAC'
+        icon tech:kubernetes
+        style {
+          color kubernetes
+        }
+      }
+
+      aiGateway = container 'AI gateway' {
+        description 'Single entry point for model calls: TLS ingress and OpenAI-compatible endpoint with keys and quotas.'
+        technology 'Traefik, HTTPS /v1'
+        icon tech:traefik-proxy
+      }
+
+      gitops = container 'GitOps controller' {
+        description 'Controller that keeps cluster workloads equal to the repository content.'
+        technology 'Argo CD'
+        icon tech:argocd
+      }
+    }
+
+  }
+
+  extend nebius.platform {
+    federation = service 'IAM federation' {
+      description 'Trust between the Nebius tenant and the enterprise identity provider. User accounts come from sign-in, not from local creation.'
+      technology 'SAML 2.0'
+      icon ./icons/nebius.svg
+    }
+
+    tokenFactory = service 'Token Factory' {
+      description 'Managed inference operated by Nebius. Public endpoints only.'
+      technology 'HTTPS'
+      icon ./icons/nebius.svg
+    }
+  }
+
+  extend nebius {
+    project = zone 'Customer project' {
+      description 'Resources that the customer operates. One project per serving region.'
+      technology 'eu-west2'
+      icon ./icons/nebius.svg
+
+      mk8s = container 'Managed Kubernetes' {
+        description 'Workload cluster for inference. Control plane operated by Nebius.'
+        icon tech:kubernetes
+        style {
+          color kubernetes
+        }
+
+        api = container 'Kubernetes API' {
+          description 'Control plane endpoint. Operated by Nebius.'
+          technology 'Nebius IAM token, RBAC'
+          icon tech:kubernetes
+          style {
+            color kubernetes
+          }
+        }
+
+        vllm = container 'vLLM pods' {
+          description 'Model inference servers on a GPU node group.'
+          technology 'vLLM, GPU node group'
+        }
+
+        weights = datastore 'Model weights volume' {
+          description 'Persistent volume for model weights. Outlives the pods.'
+          icon ./icons/nebius.svg
+        }
+      }
+    }
+  }
+
+  // Inference path
+  consumers -> datacenter.cluster.aiGateway 'Calls model API' {
+    technology 'HTTPS /v1'
+  }
+  datacenter.cluster.aiGateway -> nebius.project.mk8s.vllm 'Self-managed inference' {
+    technology 'HTTPS /v1, private path'
+  }
+  datacenter.cluster.aiGateway -> nebius.platform.tokenFactory 'Managed inference' {
+    technology 'HTTPS /v1, public internet'
+  }
+  nebius.project.mk8s.vllm -> nebius.project.mk8s.weights 'Mounts'
+
+  // Identity
+  operator -> datacenter.okta 'Signs in' {
+    technology 'SSO, MFA'
+  }
+  datacenter.okta -> nebius.platform.federation 'Federates users' {
+    technology 'SAML 2.0'
+  }
+  nebius.platform.federation -> nebius.platform.iam 'Provides user accounts'
+  datacenter.okta -> datacenter.cluster.api 'Federates users and groups' {
+    technology 'OIDC'
+  }
+  operator -> datacenter.cluster.api 'Administers' {
+    technology 'kubectl, Okta ID token'
+  }
+
+  // Delivery
+  operator -> datacenter.repository 'Pushes changes' {
+    technology 'Git'
+  }
+  iac -> nebius.platform.federation 'Declares' {
+    technology 'Nebius API'
+  }
+  iac -> nebius.project 'Creates cluster and node group' {
+    technology 'Nebius API'
+  }
+  datacenter.cluster.gitops -> datacenter.repository 'Pulls manifests' {
+    technology 'Git over HTTPS'
+  }
+  datacenter.cluster.gitops -> nebius.project.mk8s.api 'Reconciles workloads' {
+    technology 'Kubernetes API'
+  }
+}

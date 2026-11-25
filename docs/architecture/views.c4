@@ -1,8 +1,45 @@
 views {
 
   view index {
-    title 'Nebius VM sandbox - architecture'
-    description 'Whole architecture: who operates the sandbox, what provisions it, and what runs in Nebius.'
-    include operator, iac, nebius, nebius.*
+    title '1. Simple deployment - single GPU virtual machine'
+    description 'For an engineer who starts from the template: who operates the sandbox, what provisions it, and what runs in Nebius.'
+    include operator, iac, nebius, nebius.vm, nebius.bootDisk, nebius.modelsDisk, nebius.platform.iam, nebius.subnet
+  }
+
+  view target_context {
+    title '2. Target federated architecture - context'
+    description 'System context of the enterprise setup: which parties exist and how they depend on each other.'
+    include operator, consumers, iac, datacenter, nebius
+  }
+
+  view target_containers {
+    title '2. Target federated architecture - containers'
+    description 'Complete target at software level: inference path, identity federation and delivery path in one picture.'
+    include operator, consumers, iac
+    include datacenter, datacenter.*, datacenter.cluster.*
+    include nebius, nebius.platform, nebius.platform.*
+    include nebius.project, nebius.project.*, nebius.project.mk8s.*
+  }
+
+  view target_devops {
+    title '2. Target federated architecture - deployment'
+    description 'For architects and platform engineers: where each runtime lives, which software a request crosses, how a change reaches the workload cluster.'
+    include consumers, iac
+    include datacenter, datacenter.repository, datacenter.cluster, datacenter.cluster.aiGateway, datacenter.cluster.gitops
+    include nebius, nebius.platform, nebius.platform.tokenFactory
+    include nebius.project, nebius.project.*, nebius.project.mk8s.*
+  }
+
+  view target_security {
+    title '2. Target federated architecture - identity and trust boundaries'
+    description 'For security reviewers: who authenticates where and which boundary each credential crosses.'
+    include operator, consumers, iac
+    include datacenter, datacenter.okta, datacenter.repository, datacenter.cluster, datacenter.cluster.*
+    include nebius, nebius.platform, nebius.platform.*
+    include nebius.project, nebius.project.mk8s, nebius.project.mk8s.api, nebius.project.mk8s.vllm
+
+    style nebius.project.mk8s.vllm, datacenter.cluster.aiGateway {
+      color muted
+    }
   }
 }

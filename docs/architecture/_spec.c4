@@ -2,6 +2,9 @@ specification {
   color terraform #7B42BC
   color ubuntu #E95420
   color nebius #052B42
+  color okta #007DC1
+  color kubernetes #326CE5
+  color onprem #1E8E3E
 
   element actor {
     style {
@@ -15,6 +18,18 @@ specification {
     }
   }
   element container
+  element system {
+    style {
+      color gray
+    }
+  }
+  element zone {
+    style {
+      color gray
+      opacity 15%
+      border dashed
+    }
+  }
   element service {
     style {
       color nebius
