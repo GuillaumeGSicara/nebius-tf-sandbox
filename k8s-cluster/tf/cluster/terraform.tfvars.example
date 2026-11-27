@@ -1,0 +1,15 @@
+# cp terraform.tfvars.example terraform.tfvars   (gitignored)
+# project_id and subnet_id usually come from ../../../.env through TF_VAR_*.
+
+# project_id = "project-XXXXXXXX"
+# subnet_id  = "vpcsubnet-XXXXXXXX"   # must be in the project's region
+
+# Your public IP, as /32. Required while public_endpoint = true.
+allowed_cidrs = ["203.0.113.7/32"]
+
+# region          = "uk-south1"
+# platform        = "gpu-b300-sxm"
+# preset          = "1gpu-24vcpu-346gb"
+# node_count      = 1
+# preemptible     = true    # false = on-demand
+# public_endpoint = true    # false = private API (production)
