@@ -1,0 +1,115 @@
+version: "3"
+
+# Loads the .env of the repository root (same file as the VM blueprint).
+dotenv: ["../.env"]
+
+env:
+  TF_VAR_project_id: '{{.NEBIUS_PROJECT_ID}}'
+  TF_VAR_subnet_id: '{{.NEBIUS_SUBNET_ID}}'
+  TF_VAR_service_account_id: '{{.NEBIUS_SA_ID}}'
+
+tasks:
+  tf:
+    internal: true
+    interactive: true
+    dir: tf/cluster
+    requires:
+      vars: [NEBIUS_PROJECT_ID, NEBIUS_SUBNET_ID]
+    cmd: terraform {{.CMD}} {{.CLI_ARGS}}
+
+  tf:init:
+    desc: Initialise the cluster layer
+    cmds: [{task: tf, vars: {CMD: init}}]
+
+  tf:validate:
+    desc: Validate the cluster layer
+    cmds: [{task: tf, vars: {CMD: validate}}]
+
+  tf:plan:
+    desc: Plan the cluster layer
+    cmds: [{task: tf, vars: {CMD: plan}}]
+
+  tf:apply:
+    desc: Create the cluster and the GPU node group (BILLED)
+    cmds: [{task: tf, vars: {CMD: apply}}]
+
+  tf:destroy:
+    desc: Destroy the cluster and node group. Delete the Kubernetes workload first (task k8s:delete).
+    cmds: [{task: tf, vars: {CMD: destroy}}]
+
+  nebius:profile:
+    desc: Create the nebius CLI profile from the NEBIUS_SA_* of the .env (service account, no browser login)
+    requires:
+      vars: [NEBIUS_PROJECT_ID, NEBIUS_SA_ID, NEBIUS_SA_PUBLIC_KEY_ID, NEBIUS_SA_PRIVATE_KEY_FILE]
+    cmds:
+      - >-
+        nebius profile create
+        --profile bnpp-sandbox
+        --endpoint api.nebius.cloud
+        --service-account-id "{{.NEBIUS_SA_ID}}"
+        --public-key-id "{{.NEBIUS_SA_PUBLIC_KEY_ID}}"
+        --private-key-file "{{.NEBIUS_SA_PRIVATE_KEY_FILE}}"
+        --parent-id "{{.NEBIUS_PROJECT_ID}}"
+
+  kubeconfig:
+    desc: Write the kubeconfig (needs the nebius CLI)
+    vars:
+      CLUSTER_ID:
+        sh: terraform -chdir=tf/cluster output -raw cluster_id
+    cmds:
+      - nebius mk8s cluster get-credentials --id {{.CLUSTER_ID}} --external
+
+  k8s:apply:
+    desc: Deploy vLLM (namespace, PVC, Deployment, ClusterIP Service)
+    cmds:
+      - kubectl apply -f k8s/namespace.yaml
+      - kubectl apply -f k8s/pvc-models.yaml -f k8s/vllm-deployment.yaml -f k8s/vllm-service.yaml
+
+  k8s:lb:
+    desc: Optional, create the private (internal) load balancer
+    cmds:
+      - kubectl apply -f k8s/vllm-internal-lb.yaml
+
+  k8s:status:
+    desc: Pods, PVC, services and events of the vllm namespace
+    cmds:
+      - kubectl -n vllm get pods,pvc,svc -o wide
+      - kubectl -n vllm get events --sort-by=.lastTimestamp | tail -15
+
+  k8s:logs:
+    desc: Follow the vLLM logs
+    cmds:
+      - kubectl -n vllm logs -f deploy/vllm
+
+  k8s:wait:
+    desc: Wait until vLLM is ready (first start downloads the weights, up to 30 min)
+    cmds:
+      - kubectl -n vllm rollout status deploy/vllm --timeout=30m
+
+  k8s:restart:
+    desc: Delete the vLLM pod and let Kubernetes recreate it (self-healing test)
+    cmds:
+      - kubectl -n vllm delete pod -l app=vllm
+      - task: k8s:wait
+
+  k8s:delete:
+    desc: Delete the workload. Deleting the PVC deletes the weights disk.
+    cmds:
+      - kubectl delete -f k8s/vllm-internal-lb.yaml --ignore-not-found
+      - kubectl delete -f k8s/vllm-service.yaml -f k8s/vllm-deployment.yaml -f k8s/pvc-models.yaml --ignore-not-found
+      - kubectl delete -f k8s/namespace.yaml --ignore-not-found
+
+  chat:
+    desc: 'One chat completion through kubectl port-forward (task chat -- "prompt")'
+    cmds:
+      - scripts/chat.sh {{.CLI_ARGS | shellQuote}}
+
+  hw:
+    desc: Hardware report from the GPU pod (compare with the VM)
+    cmds:
+      - kubectl -n vllm exec -i deploy/vllm -- sh -s < scripts/hardware-report.sh
+
+  cluster:report:
+    desc: What Nebius provides in the cluster (versions, add-ons, storage)
+    cmds:
+      - scripts/cluster-report.sh
