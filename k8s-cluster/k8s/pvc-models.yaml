@@ -1,0 +1,14 @@
+# Model weights. Dynamic provisioning: the CSI driver creates a Network SSD disk.
+# The disk is deleted with the PVC (unlike the persistent disk of the VM blueprint).
+# ReadWriteOnce: one node at a time. Two nodes need a shared filesystem instead.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models
+  namespace: vllm
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: compute-csi-default-sc
+  resources:
+    requests:
+      storage: 100Gi

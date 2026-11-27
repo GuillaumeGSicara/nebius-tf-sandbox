@@ -1,0 +1,18 @@
+# Optional. Private load balancer: an address inside the VPC, reachable from the network
+# (and later from on-prem over IPsec or an interconnect). Not reachable from the internet.
+# Without the annotation, Nebius creates a PUBLIC load balancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-internal
+  namespace: vllm
+  annotations:
+    nebius.com/load-balancer-type: "internal"
+spec:
+  type: LoadBalancer
+  selector:
+    app: vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

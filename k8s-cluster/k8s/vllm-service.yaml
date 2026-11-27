@@ -1,0 +1,14 @@
+# Cluster-internal address. The test scripts reach it through kubectl port-forward.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: vllm
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

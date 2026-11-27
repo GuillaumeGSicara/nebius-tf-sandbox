@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: vllm
+spec:
+  replicas: 1
+  # One GPU and one ReadWriteOnce disk: the old pod must stop before the new one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: vllm
+          # Pinned. Hypothesis: this build supports Blackwell (B300) with driver 580 (cuda13.0).
+          image: vllm/vllm-openai:v0.34.0
+          args:
+            - --model=Qwen/Qwen2.5-7B-Instruct
+            - --host=0.0.0.0
+            - --port=8000
+            - --max-model-len=8192
+          env:
+            - name: HF_HOME
+              value: /models/hf
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: shm
+              mountPath: /dev/shm
+          # First start downloads the weights (~15 GB) and loads them: allow up to 30 min.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: models
+        # vLLM needs shared memory above the 64 MiB default.
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
